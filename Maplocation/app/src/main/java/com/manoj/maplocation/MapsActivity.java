@@ -5,11 +5,17 @@ import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.FragmentActivity;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.location.Criteria;
 import android.location.Location;
+import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
 
@@ -51,8 +57,18 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
+import com.kwabenaberko.openweathermaplib.constants.Lang;
+import com.kwabenaberko.openweathermaplib.constants.Units;
+import com.kwabenaberko.openweathermaplib.implementation.OpenWeatherMapHelper;
+import com.kwabenaberko.openweathermaplib.implementation.callbacks.CurrentWeatherCallback;
+import com.kwabenaberko.openweathermaplib.models.currentweather.CurrentWeather;
+import com.manoj.maplocation.adapter.recyclerModel;
+import com.manoj.maplocation.adapter.recyclerViewAdapter;
+import com.manoj.maplocation.api.api;
+import com.manoj.maplocation.api.pojo.uploadData;
 import com.manoj.maplocation.tools.DataParser;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -61,48 +77,175 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.Provider;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Retrofit;
+import retrofit2.converter.gson.GsonConverterFactory;
+import retrofit2.converter.scalars.ScalarsConverterFactory;
+
+import static java.security.AccessController.getContext;
 
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback,
         GoogleApiClient.ConnectionCallbacks,
         GoogleApiClient.OnConnectionFailedListener,
-        LocationListener, GoogleMap.OnMapClickListener {
+        LocationListener, GoogleMap.OnMapClickListener, Callback<uploadData> {
     private GoogleMap mMap;
     GoogleApiClient mGoogleApiClient;
     Location mLastLocation;
     Marker mCurrLocationMarker;
     LocationRequest mLocationRequest;
-    LatLng mycurrentlocation=null;
+    LatLng mycurrentlocation = null;
     ///mLocationRequest
     int count;
     private Marker m;
     private double currentLatitude, currentLongitude, fixedLatitude = 0, fixedLongitude = 0;
 
-    LatLng Sender,Reciver;
+    LatLng Sender, Reciver;
     MarkerOptions markerOptions;
     private String typeofloc;
-
+    Boolean change=true;
+    public  OpenWeatherMapHelper helper;
+    public ArrayList<String> cities=new ArrayList<>();
+    public List<recyclerModel> recyclerModels=new ArrayList<>();
+    public recyclerViewAdapter adapter;
+    RecyclerView recyclerView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
+        cities.add("Bangalore");
+        cities.add("Mumbai");
+        cities.add("Delhi");
+
+
+        recyclerView=findViewById(R.id.my_recycler_view);
+
+
 
         if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             checkLocationPermission();
         }
-
+        movielistList();
 
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
 
+        startService(new Intent(this, BackgroundLocationUpdateService.class));
+
+
+        //Instantiate Class With Your ApiKey As The Parameter
+         helper = new OpenWeatherMapHelper(getString(R.string.OPEN_WEATHER_MAP_API_KEY));
+
+        //Set Units
+     //   helper.setUnits(Units.IMPERIAL);
+        helper.setUnits(Units.METRIC);
+        //Set lang
+        helper.setLang(Lang.ENGLISH);
+
+
+        /*
+        This Example Only Shows how to get current weather by city name
+        Check the docs for more methods [https://github.com/KwabenBerko/OpenWeatherMap-Android-Library/]
+        */
+
+        // .setLayoutManager is important or else the recycler view will show empty
+        adapter=new recyclerViewAdapter(recyclerModels);
+        GridLayoutManager mLayoutManager = new GridLayoutManager(getApplicationContext(),3);
+        recyclerView.setLayoutManager(mLayoutManager);
+        recyclerView.setAdapter(adapter);
+        adapter.notifyDataSetChanged();
+
+        for (int i=0;i<cities.size();i++){
+            weatherReport(cities.get(i).toString().trim());
+        }
+
+    }
+    public  void weatherReport(final String cityName){
+
+
+        helper.getCurrentWeatherByCityName(cityName, new CurrentWeatherCallback() {
+            @Override
+            public void onSuccess(CurrentWeather currentWeather) {
+                Log.v("weather",
+                        "Coordinates: " + currentWeather.getCoord().getLat() + ", "+currentWeather.getCoord().getLon() +"\n"
+                                +"Weather Description: " + currentWeather.getWeather().get(0).getDescription() + "\n"
+                                +"Temperature: " + currentWeather.getMain().getTemp()+"\n"
+                                +"MIN-Temperature: " + currentWeather.getMain().getTempMin()+"\n"
+                                +"MAX-Temperature: " + currentWeather.getMain().getTempMax()+"\n"
+                                +"Humidity: " + currentWeather.getMain().getHumidity()+"\n"
+                                +"Wind Speed: " + currentWeather.getWind().getSpeed() + "\n"
+                                +"City, Country: " + currentWeather.getName() + ", " + currentWeather.getSys().getCountry()
+
+
+
+                );
+                recyclerModel datalist=new recyclerModel(
+                        cityName,
+                        String.valueOf(currentWeather.getMain().getTemp()),
+                        String.valueOf(currentWeather.getMain().getTempMin()),
+                        String.valueOf( currentWeather.getMain().getTempMax()),
+                        String.valueOf(currentWeather.getMain().getHumidity())
+                );
+                recyclerModels.add(datalist);
+                adapter.notifyDataSetChanged();
+            }
+
+            @Override
+            public void onFailure(Throwable throwable) {
+                Log.v("weather", throwable.getMessage());
+            }
+        });
+    }
+
+
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        stopService(new Intent(this, BackgroundLocationUpdateService.class));
+
+    }
+
+    private void movielistList() {
+        Retrofit retro = new Retrofit.Builder()
+                .baseUrl(api.baseurl)
+                .addConverterFactory(ScalarsConverterFactory.create())
+                .addConverterFactory(GsonConverterFactory.create()) //Here we are using the GsonConverterFactory to directly convert json data to object
+                .build();
+        api retrfit = retro.create(api.class);
+
+
+        try {
+            JSONObject paramObject = new JSONObject();
+            paramObject.put("name", "tests");
+            paramObject.put("loc", "12.89,17.788");
+            paramObject.put("time", "4384984938943");
+
+            Call<uploadData> userCall = retrfit.postlocation(paramObject.toString());
+            userCall.enqueue(this);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+    }
+    @Override
+    public void onResponse(Call<uploadData> call, retrofit2.Response<uploadData> response) {
+
+    }
+
+    @Override
+    public void onFailure(Call<uploadData> call, Throwable t) {
 
     }
 
@@ -131,15 +274,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         return false;
     }
 
-    /**
-     * Manipulates the map once available.
-     * This callback is triggered when the map is ready to be used.
-     * This is where we can add markers or lines, add listeners or move the camera. In this case,
-     * we just add a marker near Sydney, Australia.
-     * If Google Play services is not installed on the device, the user will be prompted to install
-     * it inside the SupportMapFragment. This method will only be triggered once the user has
-     * installed Google Play services and returned to the app.
-     */
+    @SuppressLint("MissingPermission")
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
@@ -160,13 +295,15 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
 
 
-               /* mMap.setMapType(GoogleMap.MAP_TYPE_TERRAIN);
-                mMap.getUiSettings().setZoomControlsEnabled(true);
-                mMap.getUiSettings().setCompassEnabled(true);
-                mMap.getUiSettings().setMyLocationButtonEnabled(true);
-                mMap.getUiSettings().setAllGesturesEnabled(true);
-                mMap.setTrafficEnabled(true);
-                mMap.animateCamera(CameraUpdateFactory.zoomTo(30));*/
+
+
+//                mMap.setMapType(GoogleMap.MAP_TYPE_TERRAIN);
+//                mMap.getUiSettings().setZoomControlsEnabled(true);
+//                mMap.getUiSettings().setCompassEnabled(true);
+//                mMap.getUiSettings().setMyLocationButtonEnabled(true);
+//                mMap.getUiSettings().setAllGesturesEnabled(true);
+//                mMap.setTrafficEnabled(true);
+//                mMap.animateCamera(CameraUpdateFactory.zoomTo(30));
             }
         }
         else {
@@ -179,19 +316,15 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     @Override
     public void onMapClick(LatLng latLng) {
 
-//        drawRoute(
-//                location.getLatitude(), location.getLongitude(),
-//                latLng.getl(), latLng.getLongitude(),
+
+//        mMap.clear();
+//        mMap.addMarker(new MarkerOptions().position(latLng));
+//
+//
+//                drawRoute(
+//                currentLatitude,currentLongitude,
+//                latLng.latitude, latLng.longitude
 //        );
-
-        mMap.clear();
-        mMap.addMarker(new MarkerOptions().position(latLng));
-
-
-                drawRoute(
-                currentLatitude,currentLongitude,
-                latLng.latitude, latLng.longitude
-        );
     }
 
     @Override
@@ -219,6 +352,22 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         currentLongitude=location.getLongitude();
         Log.d("locationchanguing", String.valueOf(location.getLatitude()+","+ location.getLongitude()));
         Toast.makeText(this, String.valueOf(location.getLatitude()+","+ location.getLongitude()), Toast.LENGTH_SHORT).show();
+
+
+        if (change) {
+            change=false;
+            LatLng DlatLng=new LatLng(12.9767,77.5713);
+            mMap.addMarker(new MarkerOptions().position(DlatLng))
+                    .setTitle("Destination:Majestic");
+            drawRoute(
+                    currentLatitude,currentLongitude,
+                    DlatLng.latitude, DlatLng.longitude
+            );
+        }
+
+
+
+
 
     }
 
@@ -252,6 +401,40 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
 
+    protected synchronized void buildGoogleApiClient() {
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .addApi(LocationServices.API)
+                .build();
+        mGoogleApiClient.connect();
+    }
+
+    @Override
+    public void onConnected(Bundle bundle) {
+
+        mLocationRequest = new LocationRequest();
+        mLocationRequest.setInterval(1000);
+        mLocationRequest.setFastestInterval(1000);
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY);
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED) {
+            LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
+        }
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+
+    }
 
 
 
@@ -433,40 +616,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
-    protected synchronized void buildGoogleApiClient() {
-        mGoogleApiClient = new GoogleApiClient.Builder(this)
-                .addConnectionCallbacks(this)
-                .addOnConnectionFailedListener(this)
-                .addApi(LocationServices.API)
-                .build();
-        mGoogleApiClient.connect();
-    }
-
-    @Override
-    public void onConnected(Bundle bundle) {
-
-        mLocationRequest = new LocationRequest();
-        mLocationRequest.setInterval(1000);
-        mLocationRequest.setFastestInterval(1000);
-        mLocationRequest.setPriority(LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY);
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.ACCESS_FINE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED) {
-            LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, mLocationRequest, this);
-        }
-
-    }
-
-    @Override
-    public void onConnectionSuspended(int i) {
-
-    }
-
-
-    @Override
-    public void onConnectionFailed(ConnectionResult connectionResult) {
-
-    }
 
     public static final int MY_PERMISSIONS_REQUEST_LOCATION = 99;
     public boolean checkLocationPermission(){

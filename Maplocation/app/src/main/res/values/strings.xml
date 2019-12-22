@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Maplocation</string>
     <string name="title_activity_maps">Map</string>
+    <string name="OPEN_WEATHER_MAP_API_KEY">458d1ca18cf964bae8cb8ce26f1e97c2</string>
 </resources>
